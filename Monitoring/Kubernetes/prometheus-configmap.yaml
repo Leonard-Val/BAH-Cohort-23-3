@@ -1,0 +1,115 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-configmap
+data:
+  prometheus.yml: |
+    global:
+      scrape_interval: 15s
+      evaluation_interval: 15s
+
+    scrape_configs:
+    - job_name: 'prometheus'
+      static_configs:
+      - targets: ['localhost:9090']
+
+    - job_name: 'kubernetes-pods'
+      kubernetes_sd_configs:
+        -role: pod
+      relabel_configs:
+      - source_labels: [__meta_kubernetes_pod_label_app]
+        regex: web-app
+        action: keep
+    
+    - job_name: 'kubernetes-nodes'
+      kubernetes_sd_configs:
+      - role: node
+
+    rule_files:
+    - 'alerting-rules.yaml'
+  
+  alerting-rules.yaml: |
+    groups:
+    - name: CommonRules
+      rules:
+        - alert: HighRequestLatency
+          expr: http_request_duration_seconds > 0.5
+          for: 1m
+          labels:
+            security: warning
+          annotations:
+            description: 'High request latency detected'
+      
+        - alert: HighErrorRate
+          expr: job:http_requests:error_rate5m > 0.5
+          for: 1m
+          labels:
+            severity: critical
+          annotations:
+            description: 'High error rate detected'
+
+        - alert: HighCPUUsage
+          expr: process_cpu_seconds_total / machine_cpu_seconds_total > 0.9
+          for: 1m
+          labels:
+            severity: critical
+          annotations:
+            description: 'High CPU usage detected'
+
+        - alert: HighMemoryUsage
+          expr: (node_memory_MemTotal - node_memory_MemFree - node_memory_Buffers - node_memory_Cached) / node_memory_MemTotal > 0.9
+          for: 1m
+          labels: 
+            severity: critical
+          annotations:
+            description: 'High memory usage detected'
+
+        - alert: ResourceExhaustion
+          expr: (node_filesystem_size - node_filesystem_free) / node_filesystem_size > 0.9
+          for: 1m
+          labels:
+            severity: warning
+          annotations:
+            description: 'Resource exhaustion detected'
+
+    - name: SecurityRules
+      rules:
+        - alert: SecuirtyGroupChanges
+          expr: sum by (namespace, pod, change_type) (kube_audit_events{operation="Update"}) > 5
+          for: 1m
+          labels:
+            severity: critical
+          annotations:
+            description: 'Security group changes detected'
+
+        - alert: SecurityAccessToSensitiveData
+          expr: sum by (namespace, pod, resource_type) (kube_audit_events{operation="Get", resource_type=~"Secret|ConfigMap"}) > 3
+          for: 1m
+          labels:
+            severity: critical
+          annotations:
+            description: 'Access to sensitive data detected'
+
+        - alert: FailedLoginAttempts
+          expr: sum by (user) (failed_login_attempts_total) > 5
+          for: 1m
+          labels:
+            severity: warning
+          annotations:
+            description: 'Multiple failed login attempts detected'
+
+        - alert: UserAccountChanges
+          expr: sum by (username) (user_account_changes_total) > 1
+          for: 1m
+          labels:
+            severity: warning
+          annotations:
+            description: 'User account changes detected'
+ 
+        - alert: AnomalousNetworkTraffic
+          expr: sum by (source_ip, dest_ip) (network_traffic_bytes) > 1000000
+          for: 1m
+          labels:
+            severity: critical
+          annotations:
+            description: 'Anomalous network traffic detected'
